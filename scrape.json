@@ -1,8 +1,13 @@
 {
-  "family": "example",
+  "family": "mgnrega",
   "about": "Example family: books.toscrape.com (a public site made for scraping practice). Copy this repo and change it.",
-  "setup": ["pip install -r requirements.txt"],
+  "setup": [
+    "pip install -r requirements.txt"
+  ],
   "tasks": {
-    "crawl": ["python", "crawl.py"]
+    "crawl": [
+      "python",
+      "crawl.py"
+    ]
   }
 }
