@@ -1,47 +1,25 @@
-# family-template
+# mgnrega
 
-Start a new scraping family for the s1d-labs pool. A family is one kind of site (or one platform many sites share); the pool runs
-its code on members' GitHub Actions minutes. This template is a complete, working family for
-[books.toscrape.com](https://books.toscrape.com) (a public site made for scraping practice): copy it, then change it.
+Scrapers for the MGNREGA MIS (NREGASoft, Ministry of Rural Development) in the s1d-labs scrape pool. The sites answer only from
+Indian IPs, so both projects are `geo="IN"`: the hub's India pool servers run them, GitHub runners never do.
 
-## Make your family
+| Project | Task | What | One queue item | Records |
+|---|---|---|---|---|
+| `mgnrega-vendors` (G06) | `vendors.py` | MIS report "Vendor Wise Expenditure" (mnregaweb2.dord.gov.in) | district x financial year | one per material line of a bill: vendor (name, registration/TIN), work (code, name, category), voucher, bill no/date, material, amount, payment date, amount paid |
+| `mgnrega-socialaudit` (A07) | `socialaudit.py` | "Social Audit Report" formats 1, 2A, 2B (mnregaweb4.nic.in/NregaArch/SocialAudit) | block x financial year | `type=panchayat` (registration, job cards, works, wage/material totals per audit period), `type=work` (sanctioned, spent, spent in the audit period), `type=material` (vendor, bill, material, price, quantity) |
 
-1. Ask the hub owner to **add the family** on [scrape.s1d.me/runners](https://scrape.s1d.me/runners) (name, what it scrapes, owner).
-   The hub creates `s1d-labs/<family>` from this template, names the family in `scrape.json`, and makes the owner admin
-   (with the GitHub account they added on home.s1d.me).
-2. Clone it: `gh repo clone s1d-labs/<family>`.
-3. In your repo:
-   - `scrape.json`: set `"family"` to the family name; list your tasks (one command each) and setup steps.
-   - `family.py`: your projects (one queue of work per site), their target hosts, the env your command needs, the queue items,
-     and the health checks.
-   - `crawl.py` (or whatever your tasks run): the scraper.
-4. **Check it**: `scrape-check` in the repo (needs `pip install "scrape-hub-client @ git+https://github.com/s1d-labs/runner@main#subdirectory=sdk"`).
-   It runs your setup and task against a local stand-in hub on 3 real items and says what works. The **check** workflow runs it
-   (and `tests/`) on every push.
-5. Run the **setup** workflow (Actions → setup → Run workflow). It registers the projects, puts them in the pool and registers
-   the health checks.
-6. The hub starts runs in members' accounts when the pool is on and there is work. Watch it on scrape.s1d.me.
+Raw pages go to the bucket through the hub (`vendors/<year>/<state>/<district>/<block>/<panchayat>.html.gz`,
+`socialaudit/<year>/<state>/<district>/<block>/<panchayat>/<period>/format*.html.gz`). Muster rolls, payments to named workers
+(format 3) and SC/ST household lists (format 4) are never fetched.
 
-## What your code gets
+How the site works: report links carry an encrypted `payload=` bound to the session that made it, so each item walks from a public
+start page in one session; years and dropdowns are ASP.NET postbacks. The national "MIS Report" index has an arithmetic captcha;
+these tasks don't use it (the state pages link the same reports without one).
 
-The pool worker ([s1d-labs/runner](https://github.com/s1d-labs/runner)) checks out this repo at `main`, runs the `setup` steps from
-`scrape.json`, and for each assignment runs the task's command here with:
+- `geo.json`: states, districts and blocks (with codes) the queues are built from; `python make_geo.py > geo.json` from an Indian IP.
+- `python -m pytest tests`: parsing tests on saved pages.
+- One item without the hub (Indian IP): see the `--local` examples at the top of `vendors.py` and `socialaudit.py`.
+- `scrape-check --items 2 --env MAX_BLOCKS=1 --env MAX_PANCHAYATS=1` (and `--project mgnrega-socialaudit`) from an Indian IP.
+- The **setup** workflow registers the projects, pool entries (`geo="IN"`, 4 workers each) and queues (5 financial years).
 
-| Variable | What |
-|---|---|
-| `SCRAPE_POOL_PROJECT` | the project to work on |
-| `SCRAPE_JOB_INDEX`, `SCRAPE_TOTAL_JOBS` | this worker's slice |
-| `SCRAPE_MAX_HOURS` | how long the command may run |
-| `SCRAPE_HUB_URL` | the hub |
-| your project's `env` | e.g. `SITE` |
-
-Use `scrape_hub_client` (`HubClient`) to claim queue items, store records, upload files and report counters. Exit when there is
-nothing left; the worker then asks the hub for the next assignment.
-
-## Rules (the full contract is in CLAUDE.md, written for people and for Claude Code)
-
-- **Be polite.** Use `hub.settings["threads"]` and `delay_ms`, idle while `hub.settings["paused"]`, and report `n_http` and
-  `t_http_s` for every request and `http_<code>` / `http_error` for failures: the hub throttles you from these.
-- **Files go through the hub** (`hub.upload_many`): it signs each upload into the family's bucket (500 GB per member) and stops at
-  the cap. Never put storage keys in this repo.
-- **Public data only**; read the site's terms first. See the team docs on home.s1d.me (Scraping rules).
+The full contract with scrape-hub is in [CLAUDE.md](CLAUDE.md).

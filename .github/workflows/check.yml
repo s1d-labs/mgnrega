@@ -1,8 +1,10 @@
 name: check
 
-# Verifies this family on every push: parsing tests on saved pages (pytest), then scrape-check, which runs setup_family.py and the
-# crawl task against a local stand-in for scrape-hub, the same way the pool runner does, on 2 real queue items (and a rerun).
-# Nothing reaches the real hub. Run it by hand too: Actions -> check -> Run workflow.
+# Verifies this family on every push: parsing tests on saved pages (pytest), then scrape-check, which runs setup_family.py and a
+# task against a local stand-in for scrape-hub, the same way the pool runner does. The NREGA sites answer only from Indian IPs, so
+# on GitHub's runners scrape-check is skipped (the parsing tests still run); run it from an Indian IP:
+#   scrape-check --items 2 --env MAX_BLOCKS=1 --env MAX_PANCHAYATS=1
+#   scrape-check --project mgnrega-socialaudit --items 2 --env MAX_PANCHAYATS=1
 on:
   push:
   pull_request:
@@ -25,8 +27,15 @@ jobs:
           python3 -c "import json; [print(c) for c in json.load(open('scrape.json')).get('setup', [])]" | grep -v "requirements.txt" | while IFS= read -r cmd; do bash -c "$cmd"; done
       - name: Parsing tests
         run: python -m pytest tests -q
-      - name: scrape-check (local stand-in hub, 2 real items)
-        run: scrape-check --items 2
+      - name: Queues build from geo.json
+        run: python -c "import family; [print(p['name'], len(p['items']), 'items') for p in family.PROJECTS]"
+      - name: scrape-check (only where the site answers)
+        run: |
+          if curl -s -m 20 -o /dev/null https://mnregaweb2.dord.gov.in/netnrega/; then
+            scrape-check --items 2 --env MAX_BLOCKS=1 --env MAX_PANCHAYATS=1
+          else
+            echo "nrega.dord.gov.in does not answer from this runner (India-only site): scrape-check skipped"
+          fi
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:

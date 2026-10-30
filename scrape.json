@@ -1,10 +1,18 @@
 {
   "family": "mgnrega",
-  "about": "Example family: books.toscrape.com (a public site made for scraping practice). Copy this repo and change it.",
+  "about": "MGNREGA MIS (NREGASoft): material vendors, bills and amounts per work (G06), and the records published for each panchayat's social audit (A07). India-only sites: projects run on the hub's India pool servers (geo IN).",
   "setup": [
     "pip install -r requirements.txt"
   ],
   "tasks": {
+    "vendors": [
+      "python",
+      "vendors.py"
+    ],
+    "socialaudit": [
+      "python",
+      "socialaudit.py"
+    ],
     "crawl": [
       "python",
       "crawl.py"
