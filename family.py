@@ -11,6 +11,8 @@ FAMILY = json.loads((Path(__file__).parent / "scrape.json").read_text())["family
 GEO = json.loads((Path(__file__).parent / "geo.json").read_text())
 FIN_YEARS = ["2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]     # the years the MIS offers
 STATE_URL = {s["state_code"]: s["state_url"] for s in GEO["states"]}
+# In the pool or not: False takes both projects out (no new work is handed out; queues and records are kept). Run setup after changing.
+ACTIVE = False
 
 PROJECTS = [
     {
