@@ -26,7 +26,7 @@ PROJECTS = [
         "geo": "IN",                   # the hub's India servers ...
         "proxy": "IN",                 # ... and GitHub runners through the team's Indian proxies (one per worker)
         "active": True,
-        "max_workers": 6,
+        "max_workers": 8,
         "unit_label": "district-year", "record_label": "material line",
         # one item per district and financial year: the task walks its blocks and panchayats in one session
         "items": [{"key": f"{fy}/{d['state_code']}/{d['district_code']}",
