@@ -42,7 +42,7 @@ PROJECTS = [
         "env": {},
         "geo": "IN",                   # the hub's India servers ...
         "proxy": "IN",                 # ... and GitHub runners through the team's Indian proxies (one per worker)
-        "active": False,               # paused 2026-11-01
+        "active": True,
         "max_workers": 4,
         "unit_label": "block-year", "record_label": "record",
         # one item per block and financial year (the audit pages are slow: about 7 requests per panchayat)
