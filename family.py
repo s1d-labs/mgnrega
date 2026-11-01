@@ -12,7 +12,8 @@ FAMILY = json.loads((Path(__file__).parent / "scrape.json").read_text())["family
 GEO = json.loads((Path(__file__).parent / "geo.json").read_text())
 FIN_YEARS = ["2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]     # the years the MIS offers
 STATE_URL = {s["state_code"]: s["state_url"] for s in GEO["states"]}
-# In the pool or not: False takes both projects out (no new work is handed out; queues and records are kept). Run setup after changing.
+# In the pool or not: False takes every project out; a project's own "active" does the same for it alone (no new work is handed
+# out; queues and records are kept). Run setup after changing.
 ACTIVE = True
 
 PROJECTS = [
@@ -24,7 +25,8 @@ PROJECTS = [
         "env": {},
         "geo": "IN",                   # the hub's India servers ...
         "proxy": "IN",                 # ... and GitHub runners through the team's Indian proxies (one per worker)
-        "max_workers": 4,
+        "active": True,
+        "max_workers": 6,
         "unit_label": "district-year", "record_label": "material line",
         # one item per district and financial year: the task walks its blocks and panchayats in one session
         "items": [{"key": f"{fy}/{d['state_code']}/{d['district_code']}",
@@ -40,6 +42,7 @@ PROJECTS = [
         "env": {},
         "geo": "IN",                   # the hub's India servers ...
         "proxy": "IN",                 # ... and GitHub runners through the team's Indian proxies (one per worker)
+        "active": False,               # paused 2026-11-01
         "max_workers": 4,
         "unit_label": "block-year", "record_label": "record",
         # one item per block and financial year (the audit pages are slow: about 7 requests per panchayat)
