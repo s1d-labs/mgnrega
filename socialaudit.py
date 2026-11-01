@@ -15,7 +15,7 @@ Try one block without the hub (needs an Indian IP):
 import gzip
 import re
 
-from nrega import Missing, PageError, cap, day, link, num, options, run, split_code_name, table
+from nrega import Missing, PageError, Skipped, cap, day, link, num, options, run, split_code_name, table
 
 BASE = "https://mnregaweb4.nic.in/NregaArch/SocialAudit/"
 P = "ctl00$ContentPlaceHolder1$"
@@ -128,34 +128,45 @@ def task(hub, site, p):
     gps = options(form, P + "ddlpanchayat")
     if not gps:
         raise Missing(f"no panchayats listed for block {p['block_code']}")
-    n = 0
+    n, skipped = 0, Skipped(hub)
     for gp, gname in gps[:p.get("max_panchayats") or cap("MAX_PANCHAYATS")]:
-        g = site.postback(form, P + "ddlpanchayat", **{P + "ddlpanchayat": gp})
-        g = site.postback(g, P + "rbLoginLevel$0", **{P + "rbLoginLevel": "0"})      # "With SA Calendar"
-        periods = options(g, P + "ddlSAPeriod")
-        if not periods:
-            hub.metric("panchayat_no_audit_period")
-            continue
-        for period, _ in periods:
-            q = site.postback(g, P + "ddlSAPeriod", **{P + "ddlSAPeriod": period})
-            index = site.postback(q, None, **{P + "login": "Get Reports"})
-            pages = {}
-            for name, href in (("format1", "panchayat_reportcard"), ("format2a", "work_info"), ("format2b", "exp_info")):
-                url = link(index, href=href)
-                if not url:
-                    raise PageError(f"no {name} link for panchayat {gp} period {period}")
-                pages[name] = site.get(url, referer=index.url)
-            codes = {"fin_year": p["fin_year"], "state_code": p["state_code"], "district_code": p["district_code"],
-                     "block_code": p["block_code"], "panchayat_code": gp}
-            rows = parse(pages["format1"], pages["format2a"], pages["format2b"], codes)
-            folder = f"socialaudit/{p['fin_year']}/{p['state_code']}/{p['district_code']}/{p['block_code']}/{gp}/{period.replace('/', '_')}"
-            hub.upload_many([(f"{folder}/{name}.html.gz", gzip.compress(page.encode("utf-8")), "application/gzip")
-                             for name, page in pages.items()])
-            for rid, data in rows:
-                hub.record(rid, {**data, "pages": folder})
-            n += len(rows)
-            hub.metric("audits_done")
-        hub.metric("panchayats_done")
+        try:
+            n += audit_panchayat(hub, site, p, form, gp)
+            skipped.ok()
+        except PageError as e:                      # a slow or broken panchayat doesn't throw away the rest of the block
+            skipped.failed(f"{p['fin_year']}/{gp}", e)
+    return n
+
+
+def audit_panchayat(hub, site, p, form, gp):
+    """Every audit period of one panchayat: returns the number of records stored."""
+    n = 0
+    g = site.postback(form, P + "ddlpanchayat", **{P + "ddlpanchayat": gp})
+    g = site.postback(g, P + "rbLoginLevel$0", **{P + "rbLoginLevel": "0"})      # "With SA Calendar"
+    periods = options(g, P + "ddlSAPeriod")
+    if not periods:
+        hub.metric("panchayat_no_audit_period")
+        return 0
+    for period, _ in periods:
+        q = site.postback(g, P + "ddlSAPeriod", **{P + "ddlSAPeriod": period})
+        index = site.postback(q, None, **{P + "login": "Get Reports"})
+        pages = {}
+        for name, href in (("format1", "panchayat_reportcard"), ("format2a", "work_info"), ("format2b", "exp_info")):
+            url = link(index, href=href)
+            if not url:
+                raise PageError(f"no {name} link for panchayat {gp} period {period}")
+            pages[name] = site.get(url, referer=index.url)
+        codes = {"fin_year": p["fin_year"], "state_code": p["state_code"], "district_code": p["district_code"],
+                 "block_code": p["block_code"], "panchayat_code": gp}
+        rows = parse(pages["format1"], pages["format2a"], pages["format2b"], codes)
+        folder = f"socialaudit/{p['fin_year']}/{p['state_code']}/{p['district_code']}/{p['block_code']}/{gp}/{period.replace('/', '_')}"
+        hub.upload_many([(f"{folder}/{name}.html.gz", gzip.compress(page.encode("utf-8")), "application/gzip")
+                         for name, page in pages.items()])
+        for rid, data in rows:
+            hub.record(rid, {**data, "pages": folder})
+        n += len(rows)
+        hub.metric("audits_done")
+    hub.metric("panchayats_done")
     return n
 
 

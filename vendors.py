@@ -15,7 +15,7 @@ import html
 import re
 from urllib.parse import urljoin
 
-from nrega import Missing, PageError, cap, clean, day, form_action_params, form_fields, link, links, norm, num, run, split_code_name
+from nrega import Missing, PageError, Skipped, cap, clean, day, form_action_params, form_fields, link, links, norm, num, run, split_code_name
 
 CELL = re.compile(r'<td id="ctl00_ContentPlaceHolder1_GridView1_(ctl\d+)_(\w+)"[^>]*>(.*?)</td>', re.S)
 
@@ -132,7 +132,7 @@ def task(hub, site, p):
     names = [t for _, t in blocks(district)]
     if not names:
         raise Missing(f"no blocks listed for {p['district']}")
-    n = 0
+    n, skipped = 0, Skipped(hub)
     for name in names[:p.get("max_blocks") or cap("MAX_BLOCKS")]:
         district, summary = open_block(hub, site, p, district, name)
         if summary is None:
@@ -143,8 +143,9 @@ def task(hub, site, p):
             try:
                 page = site.get(ghref, referer=summary.url)
             except PageError as e:
-                hub.failure("panchayat", f"{p['fin_year']}/{p['state_code']}/{p['district']}/{name}/{gname}", str(e))
+                skipped.failed(f"{p['fin_year']}/{p['state_code']}/{p['district']}/{name}/{gname}", e)
                 continue
+            skipped.ok()
             rows = parse(page)
             if not rows:
                 hub.metric("panchayat_empty")

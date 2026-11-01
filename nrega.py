@@ -16,7 +16,10 @@ import requests
 from bs4 import BeautifulSoup
 
 UA = "s1d-labs scraper (https://github.com/s1d-labs)"
-DEADLINE = time.time() + float(os.environ.get("SCRAPE_MAX_HOURS", "1")) * 3600 - 120
+BUDGET = float(os.environ.get("SCRAPE_MAX_HOURS", "1")) * 3600
+DEADLINE = time.time() + BUDGET - 120
+MIN_LEFT = min(25 * 60, BUDGET / 2)    # don't start an item with less time than this left: one cut off half-way starts over later
+RETRIES = 3                            # tries per request on a timeout or dropped connection (the audit report card is slow)
 
 
 def cap(name):
@@ -34,6 +37,22 @@ class PageError(Exception):
 
 class Missing(PageError):
     """The site doesn't list what the item asks for (a district, block or year): retrying won't help."""
+
+
+class Skipped:
+    """Counts panchayats skipped after an error; three in a row means the site is in trouble, so the item fails (and is retried)."""
+
+    def __init__(self, hub):
+        self.hub, self.row = hub, 0
+
+    def failed(self, key, error):
+        self.hub.failure("panchayat", key, str(error)[:300])
+        self.row += 1
+        if self.row >= 3:
+            raise PageError(f"3 panchayats in a row failed, last: {error}")
+
+    def ok(self):
+        self.row = 0
 
 
 class Page(str):
@@ -67,15 +86,20 @@ class Site:
         if time.time() > DEADLINE:
             raise OutOfTime()
         headers = {"Referer": referer or self.url} if (referer or self.url) else {}
-        t = time.time()
-        try:
-            r = self.s.request("POST" if data is not None else "GET", url, data=data, headers=headers, timeout=self.timeout)
-        except requests.RequestException as e:
-            self.hub.metric("http_error")
-            self.hub.error()
-            raise PageError(f"{type(e).__name__} on {url[:120]}")
-        finally:
-            self.pause()
+        for attempt in range(1, RETRIES + 1):
+            t = time.time()
+            try:
+                r = self.s.request("POST" if data is not None else "GET", url, data=data, headers=headers, timeout=self.timeout)
+                break
+            except requests.RequestException as e:
+                self.hub.metric("http_error")
+                self.hub.error()
+                if attempt == RETRIES or time.time() > DEADLINE:
+                    raise PageError(f"{type(e).__name__} on {url[:120]}")
+                self.hub.metric("http_retry")
+                time.sleep(10 * attempt)
+            finally:
+                self.pause()
         self.hub.metric("n_http")
         self.hub.metric("t_http_s", time.time() - t)
         if r.status_code != 200:
@@ -250,7 +274,7 @@ def run(task, parse_args_item):
                     total_jobs=int(os.environ.get("SCRAPE_TOTAL_JOBS", "1")))
     item = None
     try:
-        while time.time() < DEADLINE:
+        while DEADLINE - time.time() > MIN_LEFT:
             if hub.settings.get("paused"):
                 time.sleep(30)
                 continue

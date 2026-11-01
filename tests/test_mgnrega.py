@@ -74,3 +74,16 @@ def test_helpers():
     assert nrega.day("29/06/2026") == "2026-06-29" and nrega.day("") is None
     assert nrega.split_code_name("20CWOPM0523Q1ZB_142894 | (TIRATH ENTERPRISES)") == ("20CWOPM0523Q1ZB_142894", "TIRATH ENTERPRISES")
     assert nrega.split_code_name("Mango orchard(3401001002/IF/7080903024454)") == ("3401001002/IF/7080903024454", "Mango orchard")
+
+
+def test_three_failed_panchayats_in_a_row_fail_the_item():
+    import pytest
+    hub = nrega.LocalHub()
+    s = nrega.Skipped(hub)
+    s.failed("a", "timeout")
+    s.failed("b", "timeout")
+    s.ok()                                       # a good one in between resets the count
+    s.failed("c", "timeout")
+    s.failed("d", "timeout")
+    with pytest.raises(nrega.PageError):
+        s.failed("e", "timeout")
