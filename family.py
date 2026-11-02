@@ -14,7 +14,7 @@ FIN_YEARS = ["2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]   
 STATE_URL = {s["state_code"]: s["state_url"] for s in GEO["states"]}
 # In the pool or not: False takes every project out; a project's own "active" does the same for it alone (no new work is handed
 # out; queues and records are kept). Run setup after changing.
-ACTIVE = True
+ACTIVE = False
 
 PROJECTS = [
     {
