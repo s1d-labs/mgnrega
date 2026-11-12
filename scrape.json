@@ -12,10 +12,6 @@
     "socialaudit": [
       "python",
       "socialaudit.py"
-    ],
-    "crawl": [
-      "python",
-      "crawl.py"
     ]
   }
 }
