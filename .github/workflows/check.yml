@@ -31,7 +31,9 @@ jobs:
         run: python -c "import family; [print(p['name'], len(p['items']), 'items') for p in family.PROJECTS]"
       - name: scrape-check (only where the site answers)
         run: |
-          if curl -s -m 20 -o /dev/null https://mnregaweb2.dord.gov.in/netnrega/; then
+          if ! python -c "import family, sys; sys.exit(0 if family.ACTIVE else 1)"; then
+            echo "family.ACTIVE is False (paused): setup puts no project in the pool, so scrape-check is skipped"
+          elif curl -s -m 20 -o /dev/null https://mnregaweb2.dord.gov.in/netnrega/; then
             scrape-check --items 2 --env MAX_BLOCKS=1 --env MAX_PANCHAYATS=1
           else
             echo "nrega.dord.gov.in does not answer from this runner (India-only site): scrape-check skipped"
