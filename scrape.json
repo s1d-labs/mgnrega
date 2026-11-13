@@ -1,6 +1,6 @@
 {
   "family": "mgnrega",
-  "about": "MGNREGA MIS (NREGASoft): material vendors, bills and amounts per work (G06), and the records published for each panchayat's social audit (A07). India-only sites: projects run on the hub's India pool servers (geo IN).",
+  "about": "MGNREGA MIS (NREGASoft): material vendors, bills and amounts per work (G06), and the records published for each panchayat's social audit (A07); Bhuvan Bhugram (GeoMGNREGA): geotagged assets with details and photos (geotag).",
   "setup": [
     "pip install -r requirements.txt"
   ],
@@ -16,6 +16,10 @@
     "crawl": [
       "python",
       "crawl.py"
+    ],
+    "geotag": [
+      "python",
+      "geotag.py"
     ]
   }
 }

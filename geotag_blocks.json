@@ -1,0 +1,26 @@
+{
+"source": "https://bhuvan-app2.nrsc.gov.in/bhugram/usrtasks/nrega_phase2/nrega2.php",
+"states": [
+{
+"state_code": "33",
+"state": "CHHATTISGARH"
+}
+],
+"districts": [
+{
+"state_code": "33",
+"district_code": "3318",
+"district": "NARAYANPUR",
+"blocks": [
+[
+"3311004",
+"Narayanpur"
+],
+[
+"3311003",
+"Orchha(Abhujmad)"
+]
+]
+}
+]
+}

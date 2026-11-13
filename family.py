@@ -1,20 +1,22 @@
 """What this family scrapes: the MGNREGA MIS (NREGASoft) of the Ministry of Rural Development.
 
-Both sites answer only from Indian IPs, so both projects are geo="IN" (the hub's India pool servers) and proxy="IN" (GitHub runners,
+The NREGA MIS sites answer only from Indian IPs, so both projects are geo="IN" (the hub's India pool servers) and proxy="IN" (GitHub runners,
 each through one of the team's Indian proxies; requests picks up HTTPS_PROXY by itself). The queue items come from geo.json, the
 list of states, districts and blocks taken from the site's own dropdowns (the setup workflow runs on GitHub, which can't reach the
-site, so the list is kept in the repo; see make_geo.py).
+site, so the list is kept in the repo; see make_geo.py). The geotag project (Bhuvan Bhugram) needs no proxy; its queue comes from geotag_blocks.json (make_geotag_blocks.py).
 """
 import json
 from pathlib import Path
 
 FAMILY = json.loads((Path(__file__).parent / "scrape.json").read_text())["family"]
 GEO = json.loads((Path(__file__).parent / "geo.json").read_text())
+GEOTAG = json.loads((Path(__file__).parent / "geotag_blocks.json").read_text())   # Bhugram's own district/block list
+GEOTAG_CATEGORIES = ["05"]                     # Bhugram work categories to fetch: 05 = Rural Connectivity (roads, culverts, drains)
 FIN_YEARS = ["2026-2027", "2025-2026", "2024-2025", "2023-2024", "2022-2023"]     # the years the MIS offers
 STATE_URL = {s["state_code"]: s["state_url"] for s in GEO["states"]}
 # In the pool or not: False takes every project out; a project's own "active" does the same for it alone (no new work is handed
-# out; queues and records are kept). Run setup after changing.
-ACTIVE = False
+# out; queues and records are kept). Run setup after changing. vendors and socialaudit are out (paused 2026-11); geotag is in.
+ACTIVE = True
 
 PROJECTS = [
     {
@@ -25,7 +27,7 @@ PROJECTS = [
         "env": {},
         "geo": "IN",                   # the hub's India servers ...
         "proxy": "IN",                 # ... and GitHub runners through the team's Indian proxies (one per worker)
-        "active": True,
+        "active": False,
         "max_workers": 8,
         "unit_label": "district-year", "record_label": "material line",
         # one item per district and financial year: the task walks its blocks and panchayats in one session
@@ -42,7 +44,7 @@ PROJECTS = [
         "env": {},
         "geo": "IN",                   # the hub's India servers ...
         "proxy": "IN",                 # ... and GitHub runners through the team's Indian proxies (one per worker)
-        "active": True,
+        "active": False,
         "max_workers": 4,
         "unit_label": "block-year", "record_label": "record",
         # one item per block and financial year (the audit pages are slow: about 7 requests per panchayat)
@@ -50,6 +52,23 @@ PROJECTS = [
                    "payload": {"state_code": d["state_code"], "district_code": d["district_code"], "block_code": b[0],
                                "block": b[1], "fin_year": fy}}
                   for fy in FIN_YEARS for d in GEO["districts"] for b in d["blocks"]],
+    },
+    {
+        "name": f"{FAMILY}-geotag",
+        "title": "Bhuvan Bhugram (GeoMGNREGA) geotagged assets: points, details, photos",
+        "task": "geotag",
+        "target": "bhuvan-app2.nrsc.gov.in",
+        "env": {},
+        "active": True,
+        "max_workers": 2,              # Bhuvan is one shared government server: keep it light
+        "threads": 2,
+        "delay_ms": 300,
+        "unit_label": "block-category", "record_label": "asset",
+        # one item per block and work category: the WMS lists the block's assets, then each asset page and its photos
+        "items": [{"key": f"{c}/{d['state_code']}/{d['district_code']}/{b[0]}",
+                   "payload": {"state_code": d["state_code"], "district_code": d["district_code"], "district": d["district"],
+                               "block_code": b[0], "block": b[1], "category": c}}
+                  for c in GEOTAG_CATEGORIES for d in GEOTAG["districts"] for b in d["blocks"]],
     },
 ]
 
