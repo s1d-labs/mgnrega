@@ -19,6 +19,8 @@ asset (id = Bhugram's serial number `sid`; asset_id repeats across Phase I and I
 Try one block without the hub (prints records, saves files under SAVE_DIR if set):
     python geotag.py --local '{"state_code": "33", "district_code": "3318", "block_code": "3311003", "category": "05"}'
 MAX_ASSETS=3 limits the assets per item (for checks).
+--wms-only (task geotag_wms): only the WMS answers go to the bucket, one summary record per block; category "other" = every
+category except 05. Asset pages and photos of those categories are not fetched (about 140 TB of photos in all).
 """
 import gzip
 import hashlib
@@ -45,6 +47,7 @@ BUDGET = float(os.environ.get("SCRAPE_MAX_HOURS", "1")) * 3600
 DEADLINE = time.time() + BUDGET - 120
 MIN_LEFT = min(15 * 60, BUDGET / 2)   # don't start an item with less time left than this (a cut-off item starts over later)
 MAX_ASSETS = int(os.environ.get("MAX_ASSETS") or 0) or None
+WMS_ONLY = "--wms-only" in sys.argv or os.environ.get("WMS_ONLY") == "1"   # only the WMS answers: no asset pages, no photos
 SAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -54,6 +57,10 @@ class PageError(Exception):
 
 class TooSlow(PageError):
     """The WMS server stopped the request at its 60 s limit: ask for smaller parts."""
+
+
+class Busy(PageError):
+    """The WMS server had no free database connection ("Timeout waiting for idle object"): wait and ask again."""
 
 
 # ---------------------------------------------------------------- parsing (pure, tested on saved pages)
@@ -70,6 +77,8 @@ def parse_wms(text):
     """GetFeatureInfo answer -> list of GeoJSON features. Raises TooSlow on the server's time limit, PageError on anything else."""
     if "more time than allowed" in text:
         raise TooSlow("WMS stopped the request at its time limit")
+    if "waiting for idle object" in text or "Unable to obtain connection" in text:
+        raise Busy("WMS server busy (no free database connection)")
     try:
         data = json.loads(text)
     except ValueError:
@@ -181,13 +190,38 @@ class Bhuvan:
         time.sleep(max(0.2, (self.hub.settings.get("delay_ms") or 0) / 1000))
 
 
-def features(site, p):
-    """Every asset of the block and category, and the raw answers [(bucket path, bytes)]. Panchayat by panchayat when the block
-    is too big for the server's 60 s limit."""
-    base = f"wms/{p['state_code']}/{p['district_code']}/{p['block_code']}/{p['category']}"
-    cql = f"block_code='{p['block_code']}' and category_id='{p['category']}'"
-    try:
+OTHER = "other"     # payload category for "every category except 05": WMS records only (wms-only mode)
+CATEGORIES = ["01", "02", "03", "04", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17"]
+
+
+def category_cql(category):
+    if category == OTHER:
+        return "(category_id <> '05' or category_id is null)"
+    return f"category_id='{category}'"
+
+
+def _ask(site, cql):
+    """The WMS answer for `cql`, checked; a busy server is asked again after 1, 2, 4, 8 minutes (counted as wms_busy)."""
+    for i in range(5):
         text = site.get(wms_url(cql), timeout=120)
+        try:
+            parse_wms(text)
+            return text
+        except Busy:
+            site.hub.metric("wms_busy")
+            site.hub.block()
+            if i == 4:
+                raise
+            time.sleep(60 * 2 ** i)
+
+
+def features(site, p):
+    """Every asset of the block and category, and the raw answers [(bucket path, text)]. When the server's 60 s limit stops a
+    request: panchayat by panchayat (get_gp.php lists them), and for category "other" then category by category."""
+    base = f"wms/{p['state_code']}/{p['district_code']}/{p['block_code']}/{p['category']}"
+    cql = f"block_code='{p['block_code']}' and {category_cql(p['category'])}"
+    try:
+        text = _ask(site, cql)
         feats = parse_wms(text)
         if len(feats) < FEATURE_COUNT:
             return feats, [(base + ".json.gz", text)]
@@ -198,9 +232,20 @@ def features(site, p):
         raise PageError("block too big for one WMS request and no panchayat list")
     out, raw = [], []
     for code, _ in gps:
-        text = site.get(wms_url(cql + f" and panchayat_code='{code}'"), timeout=120)
-        out += parse_wms(text)
-        raw.append((f"{base}/{code}.json.gz", text))
+        gcql = f"block_code='{p['block_code']}' and panchayat_code='{code}'"
+        try:
+            text = _ask(site, gcql + " and " + category_cql(p["category"]))
+            out += parse_wms(text)
+            raw.append((f"{base}/{code}.json.gz", text))
+        except TooSlow:
+            if p["category"] != OTHER:
+                raise PageError(f"panchayat {code} too big for one WMS request")
+            for c in CATEGORIES + ["none"]:
+                ccql = "(category_id is null or category_id = '')" if c == "none" else f"category_id='{c}'"
+                text = _ask(site, gcql + " and " + ccql)
+                out += parse_wms(text)
+                raw.append((f"{base}/{code}/{c}.json.gz", text))
+                site.pause()
         site.pause()
     return out, raw
 
@@ -219,13 +264,20 @@ def do_asset(site, p, feat, uploaded):
     photos = []
     for ph in det["photos"]:
         got, data = None, None
+        err = None
         for u in dict.fromkeys([ph["url"], ph["shown_url"]]):
-            data = site.get(u, timeout=120, binary=True)
+            try:
+                data = site.get(u, timeout=120, binary=True)
+            except PageError as e:
+                data, err = None, str(e)
             if data:
-                got = u
+                got, err = u, None
                 break
         site.pause()
-        entry = dict(ph, fetched_url=got, status="stored" if data else "not_found")
+        entry = dict(ph, fetched_url=got, status="stored" if data else ("error" if err else "not_found"))
+        if err:
+            entry["error"] = err[:200]
+            site.hub.failure("photo", ph["url"][-200:], err[:300], sid=sid)
         if data:
             k = photo_key(got)
             entry.update(key=k, bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
@@ -242,10 +294,25 @@ def do_asset(site, p, feat, uploaded):
     return sum(1 for x in photos if x["status"] == "stored")
 
 
+def wms_summary(p, feats, raw):
+    """WMS-only mode: one record per block (the assets themselves stay in the bucket copies of the WMS answers)."""
+    from collections import Counter
+    props = [f.get("properties") or {} for f in feats]
+    return {**{k: p.get(k) for k in ("state_code", "district_code", "district", "block_code", "block", "category")},
+            "assets": len({x.get("sid") for x in props}), "features": len(feats),
+            "by_category": dict(Counter(x.get("category_id") or "" for x in props)),
+            "by_stage": dict(Counter(x.get("stage") or "" for x in props)),
+            "files": [k for k, _ in raw], "bytes": sum(len(t.encode("utf-8")) for _, t in raw),
+            "source": "Bhuvan Bhugram (GeoMGNREGA) WMS nrega:nrega_phase2, GetFeatureInfo"}
+
+
 def do_item(hub, p, stop):
     site = Bhuvan(hub)
     feats, raw = features(site, p)
     hub.upload_many([(k, gzip.compress(t.encode("utf-8")), "application/gzip") for k, t in raw])
+    if WMS_ONLY:
+        hub.record(f"{p['category']}/{p['block_code']}", wms_summary(p, feats, raw))
+        return len(feats)
     if MAX_ASSETS:
         feats = feats[:MAX_ASSETS]
     seen, todo = set(), []
@@ -280,10 +347,11 @@ def do_item(hub, p, stop):
 
 def main():
     stop = stop_flag()
-    if sys.argv[1:2] == ["--local"]:
+    args = [a for a in sys.argv[1:] if a != "--wms-only"]
+    if args[:1] == ["--local"]:
         from scrape_hub_client import LocalHub
         hub = LocalHub(threads=2, delay_ms=200, save_dir=os.environ.get("SAVE_DIR"))
-        n = do_item(hub, json.loads(sys.argv[2]), stop)
+        n = do_item(hub, json.loads(args[1]), stop)
         print(f"{n} assets, counters {hub.counts}", file=sys.stderr)
         return
     from scrape_hub_client import HubClient

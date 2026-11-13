@@ -57,3 +57,12 @@ def test_panchayat_dropdown():
 def test_wms_url_filters_by_block_and_category():
     u = geotag.wms_url("block_code='3311003' and category_id='05'")
     assert "QUERY_LAYERS=nrega%3Anrega_phase2" in u and "INFO_FORMAT=application%2Fjson" in u and "block_code" in u
+
+
+def test_busy_server_is_told_apart_from_time_limit():
+    busy = ("<ServiceExceptionReport><ServiceException code=\"internalError\">Rendering process failed. Layers: nrega:nrega_phase2\n"
+            "Unable to obtain connection: Cannot get a connection, pool error Timeout waiting for idle object</ServiceException>")
+    with pytest.raises(geotag.Busy):
+        geotag.parse_wms(busy)
+    assert geotag.category_cql("other") == "(category_id <> '05' or category_id is null)"
+    assert geotag.category_cql("05") == "category_id='05'"

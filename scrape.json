@@ -20,6 +20,11 @@
     "geotag": [
       "python",
       "geotag.py"
+    ],
+    "geotag_wms": [
+      "python",
+      "geotag.py",
+      "--wms-only"
     ]
   }
 }
